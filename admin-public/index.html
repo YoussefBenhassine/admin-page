@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Email Campaign Manager</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-light">
+    <!-- Header -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <div class="d-flex align-items-center">
+                <div class="bg-white bg-opacity-20 rounded-3 p-2 me-3">
+                    <i class="fas fa-envelope text-white fs-5"></i>
+                </div>
+                <div>
+                    <h1 class="navbar-brand mb-0 h1 text-white fw-bold">Email Campaign Manager</h1>
+                    <p class="text-white-50 small mb-0">Panel d'administration</p>
+                </div>
+            </div>
+            <div class="d-flex align-items-center">
+                <div class="text-end me-3">
+                    <p class="text-white small fw-medium mb-0" id="current-time"></p>
+                    <p class="text-white-50 small mb-0">Dernière mise à jour</p>
+                </div>
+                <div class="bg-success rounded-circle" style="width: 12px; height: 12px; animation: pulse 2s infinite;"></div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Navigation Tabs -->
+    <div class="bg-white border-bottom">
+        <div class="container-fluid">
+            <ul class="nav nav-tabs border-0" id="mainTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="dashboard-tab" data-bs-toggle="tab" data-bs-target="#dashboard" type="button" role="tab">
+                        <i class="fas fa-chart-line me-2"></i>
+                        Tableau de bord
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="licenses-tab" data-bs-toggle="tab" data-bs-target="#licenses" type="button" role="tab">
+                        <i class="fas fa-key me-2"></i>
+                        Licences
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="machines-tab" data-bs-toggle="tab" data-bs-target="#machines" type="button" role="tab">
+                        <i class="fas fa-desktop me-2"></i>
+                        Machines
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings" type="button" role="tab">
+                        <i class="fas fa-cog me-2"></i>
+                        Paramètres
+                    </button>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container-fluid py-4">
+        <div class="tab-content" id="mainTabsContent">
+            <!-- Dashboard Tab -->
+            <div class="tab-pane fade show active" id="dashboard" role="tabpanel">
+                <!-- Stats Cards -->
+                <div class="row g-4 mb-4">
+                    <div class="col-xl-3 col-md-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="bg-primary bg-opacity-10 rounded-3 p-3 me-3">
+                                        <i class="fas fa-key text-primary fs-4"></i>
+                                    </div>
+                                    <div>
+                                        <h6 class="card-title text-muted mb-1">Licences Totales</h6>
+                                        <h3 class="mb-0 fw-bold" id="total-licenses">0</h3>
+                                        <small class="text-success" id="active-licenses">0 actives</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xl-3 col-md-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="bg-success bg-opacity-10 rounded-3 p-3 me-3">
+                                        <i class="fas fa-check-circle text-success fs-4"></i>
+                                    </div>
+                                    <div>
+                                        <h6 class="card-title text-muted mb-1">Licences Actives</h6>
+                                        <h3 class="mb-0 fw-bold" id="active-licenses-count">0</h3>
+                                        <small class="text-success">En cours</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xl-3 col-md-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="bg-info bg-opacity-10 rounded-3 p-3 me-3">
+                                        <i class="fas fa-desktop text-info fs-4"></i>
+                                    </div>
+                                    <div>
+                                        <h6 class="card-title text-muted mb-1">Machines Connectées</h6>
+                                        <h3 class="mb-0 fw-bold" id="active-machines">0</h3>
+                                        <small class="text-info">En ligne</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xl-3 col-md-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="bg-warning bg-opacity-10 rounded-3 p-3 me-3">
+                                        <i class="fas fa-exclamation-triangle text-warning fs-4"></i>
+                                    </div>
+                                    <div>
+                                        <h6 class="card-title text-muted mb-1">Expirent Bientôt</h6>
+                                        <h3 class="mb-0 fw-bold" id="expiring-soon">0</h3>
+                                        <small class="text-warning">Dans 30 jours</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity -->
+                <div class="row g-4">
+                    <div class="col-lg-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-primary bg-opacity-10 border-0">
+                                <h5 class="card-title mb-0 text-primary">
+                                    <i class="fas fa-clock me-2"></i>
+                                    Licences Récentes
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="recent-licenses">
+                                    <!-- Rempli dynamiquement -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-success bg-opacity-10 border-0">
+                                <h5 class="card-title mb-0 text-success">
+                                    <i class="fas fa-network-wired me-2"></i>
+                                    Machines Récentes
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="recent-machines">
+                                    <!-- Rempli dynamiquement -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Licenses Tab -->
+            <div class="tab-pane fade" id="licenses" role="tabpanel">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-primary bg-opacity-10 border-0">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0 text-primary">
+                                <i class="fas fa-key me-2"></i>
+                                Gestion des Licences
+                            </h5>
+                            <button id="create-license-btn" class="btn btn-primary">
+                                <i class="fas fa-plus me-2"></i>
+                                Créer une Licence
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="border-0">ID</th>
+                                        <th class="border-0">Clé de Licence</th>
+                                        <th class="border-0">Expiration</th>
+                                        <th class="border-0">Machine</th>
+                                        <th class="border-0">Utilisations</th>
+                                        <th class="border-0">Statut</th>
+                                        <th class="border-0">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="licenses-table">
+                                    <!-- Rempli dynamiquement -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Machines Tab -->
+            <div class="tab-pane fade" id="machines" role="tabpanel">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-success bg-opacity-10 border-0">
+                        <h5 class="card-title mb-0 text-success">
+                            <i class="fas fa-desktop me-2"></i>
+                            Machines Connectées
+                        </h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="border-0">Machine ID</th>
+                                        <th class="border-0">Nom d'hôte</th>
+                                        <th class="border-0">Plateforme</th>
+                                        <th class="border-0">Version</th>
+                                        <th class="border-0">Licence</th>
+                                        <th class="border-0">Dernière activité</th>
+                                        <th class="border-0">Statut</th>
+                                        <th class="border-0">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="machines-table">
+                                    <!-- Rempli dynamiquement -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div class="tab-pane fade" id="settings" role="tabpanel">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-info bg-opacity-10 border-0">
+                        <h5 class="card-title mb-0 text-info">
+                            <i class="fas fa-cog me-2"></i>
+                            Paramètres Système
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="settings-form">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">
+                                            <i class="fas fa-clock me-2 text-primary"></i>
+                                            Durée d'essai (jours)
+                                        </label>
+                                        <input type="number" id="trial-duration" name="trial-duration" class="form-control" min="1" max="365">
+                                        <div class="form-text">Durée de la période d'essai en jours</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">
+                                            <i class="fas fa-server me-2 text-success"></i>
+                                            Machines max par licence
+                                        </label>
+                                        <input type="number" id="max-machines" name="max-machines" class="form-control" min="1" max="10">
+                                        <div class="form-text">Nombre maximum de machines par licence</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save me-2"></i>
+                                    Sauvegarder
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    
+    <!-- Create License Modal -->
+    <div class="modal fade" id="create-license-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-plus-circle me-2 text-primary"></i>
+                        Créer une Nouvelle Licence
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="create-license-form">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="fas fa-calendar me-2 text-success"></i>
+                                Date d'expiration
+                            </label>
+                            <input type="date" id="license-expiration" name="license-expiration" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="fas fa-desktop me-2 text-info"></i>
+                                Machine ID (optionnel)
+                            </label>
+                            <input type="text" id="license-machine-id" name="license-machine-id" class="form-control" placeholder="Laissez vide pour licence générique">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus me-2"></i>
+                            Créer
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- License Key Modal -->
+    <div class="modal fade" id="license-key-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-key me-2 text-success"></i>
+                        Licence Créée avec Succès
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-success d-flex align-items-center mb-3">
+                        <i class="fas fa-check-circle me-2"></i>
+                        <span>Licence générée avec succès !</span>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Clé de licence</label>
+                        <div class="input-group">
+                            <input type="text" id="generated-license-key" class="form-control" readonly>
+                            <button type="button" class="btn btn-outline-secondary" onclick="copyToClipboard('generated-license-key')">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Date d'expiration</label>
+                        <input type="text" id="generated-expiration" class="form-control" readonly>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">
+                        <i class="fas fa-check me-2"></i>
+                        Compris
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index: 1055;"></div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom JS -->
+    <script src="script.js"></script>
+    <!-- Debug Script -->
+    <script src="debug-machines.js"></script>
+</body>
+</html> 
