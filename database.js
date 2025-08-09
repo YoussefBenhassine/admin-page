@@ -165,38 +165,78 @@ const db = {
 
   async createOrUpdateMachine(machine) {
     // Vérifier si la machine a besoin d'une réinitialisation d'essai
-    const existingMachine = await pool.query('SELECT needs_trial_reset FROM machines WHERE machine_id = $1', [machine.machineId]);
+    const existingMachine = await pool.query('SELECT needs_trial_reset, license_key FROM machines WHERE machine_id = $1', [machine.machineId]);
     
     if (existingMachine.rows.length > 0 && existingMachine.rows[0].needs_trial_reset) {
-      // Si la machine a besoin d'une réinitialisation, ne pas mettre à jour la licence
-      const result = await pool.query(`
-        UPDATE machines 
-        SET 
-          hostname = $2,
-          platform = $3,
-          version = $4,
-          last_seen = CURRENT_TIMESTAMP,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE machine_id = $1
-        RETURNING *
-      `, [machine.machineId, machine.hostname, machine.platform, machine.version]);
-      return result.rows[0];
+      // Si la machine a besoin d'une réinitialisation, vérifier si c'est une nouvelle licence
+      const currentLicenseKey = existingMachine.rows[0].license_key;
+      
+      if (machine.licenseKey && machine.licenseKey !== currentLicenseKey) {
+        // Si c'est une nouvelle licence différente, permettre la mise à jour
+        const result = await pool.query(`
+          INSERT INTO machines (machine_id, hostname, platform, version, license_key)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (machine_id) 
+          DO UPDATE SET 
+            hostname = EXCLUDED.hostname,
+            platform = EXCLUDED.platform,
+            version = EXCLUDED.version,
+            license_key = EXCLUDED.license_key,
+            needs_trial_reset = false,
+            last_seen = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+          RETURNING *
+        `, [machine.machineId, machine.hostname, machine.platform, machine.version, machine.licenseKey]);
+        return result.rows[0];
+      } else {
+        // Si c'est la même licence ou pas de licence, ne pas mettre à jour la licence
+        const result = await pool.query(`
+          UPDATE machines 
+          SET 
+            hostname = $2,
+            platform = $3,
+            version = $4,
+            last_seen = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE machine_id = $1
+          RETURNING *
+        `, [machine.machineId, machine.hostname, machine.platform, machine.version]);
+        return result.rows[0];
+      }
     } else {
       // Comportement normal si pas de réinitialisation en cours
-      const result = await pool.query(`
-        INSERT INTO machines (machine_id, hostname, platform, version, license_key)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (machine_id) 
-        DO UPDATE SET 
-          hostname = EXCLUDED.hostname,
-          platform = EXCLUDED.platform,
-          version = EXCLUDED.version,
-          license_key = EXCLUDED.license_key,
-          last_seen = CURRENT_TIMESTAMP,
-          updated_at = CURRENT_TIMESTAMP
-        RETURNING *
-      `, [machine.machineId, machine.hostname, machine.platform, machine.version, machine.licenseKey]);
-      return result.rows[0];
+      if (machine.licenseKey !== undefined) {
+        // Si une licence est fournie, l'utiliser
+        const result = await pool.query(`
+          INSERT INTO machines (machine_id, hostname, platform, version, license_key)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (machine_id) 
+          DO UPDATE SET 
+            hostname = EXCLUDED.hostname,
+            platform = EXCLUDED.platform,
+            version = EXCLUDED.version,
+            license_key = EXCLUDED.license_key,
+            last_seen = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+          RETURNING *
+        `, [machine.machineId, machine.hostname, machine.platform, machine.version, machine.licenseKey]);
+        return result.rows[0];
+      } else {
+        // Si pas de licence fournie, préserver la licence existante
+        const result = await pool.query(`
+          INSERT INTO machines (machine_id, hostname, platform, version, license_key)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (machine_id) 
+          DO UPDATE SET 
+            hostname = EXCLUDED.hostname,
+            platform = EXCLUDED.platform,
+            version = EXCLUDED.version,
+            last_seen = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+          RETURNING *
+        `, [machine.machineId, machine.hostname, machine.platform, machine.version, existingMachine.rows[0]?.license_key || null]);
+        return result.rows[0];
+      }
     }
   },
 

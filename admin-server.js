@@ -162,19 +162,8 @@ app.post('/api/machines/register', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Données de machine incomplètes' });
     }
 
-    // Vérifier si la machine a besoin d'une réinitialisation d'essai
-    const existingMachine = await db.getMachineById(machineId);
-    if (existingMachine && existingMachine.needs_trial_reset) {
-      // Si la machine a besoin d'une réinitialisation, bloquer l'enregistrement avec une licence
-      if (licenseKey) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'reset_required',
-          message: 'Cette machine a besoin d\'une réinitialisation d\'essai. Veuillez d\'abord traiter la réinitialisation.'
-        });
-      }
-    }
-
+    // La logique de vérification des licences est maintenant gérée dans createOrUpdateMachine
+    // Permettre l'enregistrement même si la machine a besoin d'une réinitialisation
     const machine = await db.createOrUpdateMachine({
       machineId,
       hostname,
