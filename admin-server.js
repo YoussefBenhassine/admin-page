@@ -162,6 +162,19 @@ app.post('/api/machines/register', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Données de machine incomplètes' });
     }
 
+    // Vérifier si la machine a besoin d'une réinitialisation d'essai
+    const existingMachine = await db.getMachineById(machineId);
+    if (existingMachine && existingMachine.needs_trial_reset) {
+      // Si la machine a besoin d'une réinitialisation, bloquer l'enregistrement avec une licence
+      if (licenseKey) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'reset_required',
+          message: 'Cette machine a besoin d\'une réinitialisation d\'essai. Veuillez d\'abord traiter la réinitialisation.'
+        });
+      }
+    }
+
     const machine = await db.createOrUpdateMachine({
       machineId,
       hostname,
@@ -190,7 +203,14 @@ app.post('/api/machines/:machineId/reset-trial', async (req, res) => {
     // Marquer la machine comme ayant besoin d'une réinitialisation d'essai
     await db.updateMachineNeedsTrialReset(machineId, true);
     
-    res.json({ success: true });
+    console.log(`🔄 Machine ${machineId} réinitialisée - en attente de traitement client`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Machine réinitialisée avec succès. La machine doit maintenant traiter la réinitialisation.',
+      machineId,
+      needsTrialReset: true
+    });
   } catch (error) {
     console.error('Erreur lors de la réinitialisation de la machine:', error);
     res.status(500).json({ success: false, error: 'Erreur lors de la réinitialisation de la machine' });
