@@ -36,6 +36,7 @@ const createTables = async () => {
         version VARCHAR(50) NOT NULL,
         license_key TEXT,
         needs_trial_reset BOOLEAN DEFAULT false,
+        blocked_license_key TEXT,
         last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -68,6 +69,16 @@ const createTables = async () => {
       `);
     } catch (error) {
       console.log('ℹ️ Colonne needs_trial_reset déjà présente ou erreur de migration:', error.message);
+    }
+
+    // Migration: Ajouter la colonne blocked_license_key si elle n'existe pas
+    try {
+      await client.query(`
+        ALTER TABLE machines 
+        ADD COLUMN IF NOT EXISTS blocked_license_key TEXT
+      `);
+    } catch (error) {
+      console.log('ℹ️ Colonne blocked_license_key déjà présente ou erreur de migration:', error.message);
     }
 
     console.log('✅ Tables créées avec succès');
@@ -165,14 +176,28 @@ const db = {
 
   async createOrUpdateMachine(machine) {
     // Vérifier si la machine a besoin d'une réinitialisation d'essai
-    const existingMachine = await pool.query('SELECT needs_trial_reset, license_key FROM machines WHERE machine_id = $1', [machine.machineId]);
+    const existingMachine = await pool.query('SELECT needs_trial_reset, license_key, blocked_license_key FROM machines WHERE machine_id = $1', [machine.machineId]);
     
     if (existingMachine.rows.length > 0 && existingMachine.rows[0].needs_trial_reset) {
-      // Si la machine a besoin d'une réinitialisation, vérifier si c'est une nouvelle licence
-      const currentLicenseKey = existingMachine.rows[0].license_key;
+      // Si la machine a besoin d'une réinitialisation, vérifier si c'est une licence bloquée
+      const blockedLicenseKey = existingMachine.rows[0].blocked_license_key;
       
-      if (machine.licenseKey && machine.licenseKey !== currentLicenseKey) {
-        // Si c'est une nouvelle licence différente, permettre la mise à jour
+      if (machine.licenseKey && machine.licenseKey === blockedLicenseKey) {
+        // Si c'est la licence bloquée, ne pas permettre la mise à jour
+        const result = await pool.query(`
+          UPDATE machines 
+          SET 
+            hostname = $2,
+            platform = $3,
+            version = $4,
+            last_seen = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE machine_id = $1
+          RETURNING *
+        `, [machine.machineId, machine.hostname, machine.platform, machine.version]);
+        return result.rows[0];
+      } else if (machine.licenseKey && machine.licenseKey !== blockedLicenseKey) {
+        // Si c'est une licence différente de la bloquée, permettre la mise à jour
         const result = await pool.query(`
           INSERT INTO machines (machine_id, hostname, platform, version, license_key)
           VALUES ($1, $2, $3, $4, $5)
@@ -183,13 +208,14 @@ const db = {
             version = EXCLUDED.version,
             license_key = EXCLUDED.license_key,
             needs_trial_reset = false,
+            blocked_license_key = NULL,
             last_seen = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
           RETURNING *
         `, [machine.machineId, machine.hostname, machine.platform, machine.version, machine.licenseKey]);
         return result.rows[0];
       } else {
-        // Si c'est la même licence ou pas de licence, ne pas mettre à jour la licence
+        // Si pas de licence fournie, ne pas mettre à jour la licence
         const result = await pool.query(`
           UPDATE machines 
           SET 
@@ -266,6 +292,17 @@ const db = {
       WHERE machine_id = $1
       RETURNING *
     `, [machineId, needsReset]);
+    
+    return result.rows[0];
+  },
+
+  async updateMachineBlockedLicenseKey(machineId, blockedLicenseKey) {
+    const result = await pool.query(`
+      UPDATE machines 
+      SET blocked_license_key = $2, updated_at = CURRENT_TIMESTAMP
+      WHERE machine_id = $1
+      RETURNING *
+    `, [machineId, blockedLicenseKey]);
     
     return result.rows[0];
   },

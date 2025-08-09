@@ -183,8 +183,17 @@ app.post('/api/machines/:machineId/reset-trial', async (req, res) => {
   try {
     const { machineId } = req.params;
     
+    // Récupérer la licence actuelle de la machine avant de la réinitialiser
+    const currentMachine = await db.getMachineById(machineId);
+    const currentLicenseKey = currentMachine ? currentMachine.license_key : null;
+    
     // Désactiver toutes les licences associées à cette machine
     await db.updateLicensesByMachineId(machineId, { is_active: false });
+    
+    // Stocker l'ancienne licence dans blocked_license_key pour la bloquer
+    if (currentLicenseKey) {
+      await db.updateMachineBlockedLicenseKey(machineId, currentLicenseKey);
+    }
     
     // Supprimer la licence associée à la machine
     await db.updateMachineLicenseKey(machineId, null);
@@ -192,13 +201,14 @@ app.post('/api/machines/:machineId/reset-trial', async (req, res) => {
     // Marquer la machine comme ayant besoin d'une réinitialisation d'essai
     await db.updateMachineNeedsTrialReset(machineId, true);
     
-    console.log(`🔄 Machine ${machineId} réinitialisée - en attente de traitement client`);
+    console.log(`🔄 Machine ${machineId} réinitialisée - licence bloquée: ${currentLicenseKey || 'aucune'}`);
     
     res.json({ 
       success: true, 
       message: 'Machine réinitialisée avec succès. La machine doit maintenant traiter la réinitialisation.',
       machineId,
-      needsTrialReset: true
+      needsTrialReset: true,
+      blockedLicenseKey: currentLicenseKey
     });
   } catch (error) {
     console.error('Erreur lors de la réinitialisation de la machine:', error);
