@@ -35,6 +35,7 @@ const createTables = async () => {
         platform VARCHAR(100) NOT NULL,
         version VARCHAR(50) NOT NULL,
         license_key TEXT,
+        needs_trial_reset BOOLEAN DEFAULT false,
         last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -58,6 +59,16 @@ const createTables = async () => {
       VALUES (30, 1)
       ON CONFLICT DO NOTHING
     `);
+
+    // Migration: Ajouter la colonne needs_trial_reset si elle n'existe pas
+    try {
+      await client.query(`
+        ALTER TABLE machines 
+        ADD COLUMN IF NOT EXISTS needs_trial_reset BOOLEAN DEFAULT false
+      `);
+    } catch (error) {
+      console.log('ℹ️ Colonne needs_trial_reset déjà présente ou erreur de migration:', error.message);
+    }
 
     console.log('✅ Tables créées avec succès');
   } catch (error) {
@@ -186,6 +197,25 @@ const db = {
     `, [machineId, licenseKey]);
     
     return result.rows[0];
+  },
+
+  async updateMachineNeedsTrialReset(machineId, needsReset) {
+    const result = await pool.query(`
+      UPDATE machines 
+      SET needs_trial_reset = $2, updated_at = CURRENT_TIMESTAMP
+      WHERE machine_id = $1
+      RETURNING *
+    `, [machineId, needsReset]);
+    
+    return result.rows[0];
+  },
+
+  async getMachineNeedsTrialReset(machineId) {
+    const result = await pool.query(`
+      SELECT needs_trial_reset FROM machines WHERE machine_id = $1
+    `, [machineId]);
+    
+    return result.rows[0]?.needs_trial_reset || false;
   },
 
   async deleteMachine(machineId) {

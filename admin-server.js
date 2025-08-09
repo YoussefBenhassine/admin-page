@@ -187,10 +187,30 @@ app.post('/api/machines/:machineId/reset-trial', async (req, res) => {
     // Supprimer la licence associée à la machine
     await db.updateMachineLicenseKey(machineId, null);
     
+    // Marquer la machine comme ayant besoin d'une réinitialisation d'essai
+    await db.updateMachineNeedsTrialReset(machineId, true);
+    
     res.json({ success: true });
   } catch (error) {
     console.error('Erreur lors de la réinitialisation de la machine:', error);
     res.status(500).json({ success: false, error: 'Erreur lors de la réinitialisation de la machine' });
+  }
+});
+
+// Vérifier si une machine a besoin d'une réinitialisation d'essai
+app.get('/api/machines/:machineId/needs-trial-reset', async (req, res) => {
+  try {
+    const { machineId } = req.params;
+    const needsReset = await db.getMachineNeedsTrialReset(machineId);
+    
+    res.json({ 
+      success: true, 
+      machineId, 
+      needsTrialReset: needsReset 
+    });
+  } catch (error) {
+    console.error('Erreur lors de la vérification du statut de réinitialisation:', error);
+    res.status(500).json({ success: false, error: 'Erreur lors de la vérification du statut de réinitialisation' });
   }
 });
 
@@ -250,9 +270,10 @@ app.post('/api/validate-license', async (req, res) => {
     if (licenseKey === 'check_trial_reset') {
       const machine = await db.getMachineById(machineId);
       if (machine && machine.needs_trial_reset) {
-        // Marquer la machine comme réinitialisée
+        // Marquer la machine comme réinitialisée et effacer le flag
         await db.updateMachineLastSeen(machineId);
-        return res.json({ valid: false, error: 'reset_trial' });
+        await db.updateMachineNeedsTrialReset(machineId, false);
+        return res.json({ valid: false, error: 'reset_trial', message: 'Trial reset successful' });
       }
       return res.json({ valid: false, error: 'Licence invalide' });
     }
