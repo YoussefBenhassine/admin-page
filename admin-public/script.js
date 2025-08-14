@@ -226,7 +226,8 @@ function updateLicensesTable() {
                 }
             </td>
             <td class="align-middle">
-                <span class="badge bg-primary">${license.usageCount || 0}</span>
+                <span class="badge bg-primary" title="Utilisations totales">${license.usageCount || 0}</span>
+                ${license.usageCount > 0 ? '<br><small class="text-muted">One-time use</small>' : ''}
             </td>
             <td class="align-middle">
                 <span class="status-badge ${statusClass}">${statusText}</span>
@@ -592,6 +593,131 @@ function fallbackCopyTextToClipboard(text) {
     document.body.removeChild(textArea);
 }
 
+// View license usage details
+async function viewLicenseDetails(licenseId) {
+    try {
+        const response = await fetch(`/api/licenses/${licenseId}/usage`);
+        const data = await response.json();
+        
+        if (data.success) {
+            showLicenseUsageModal(data.license, data.usage);
+        } else {
+            showToast('Erreur lors du chargement des détails', 'error');
+        }
+    } catch (error) {
+        console.error('Erreur lors du chargement des détails:', error);
+        showToast('Erreur lors du chargement des détails', 'error');
+    }
+}
+
+// Show license usage modal
+function showLicenseUsageModal(license, usage) {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.id = 'license-usage-modal';
+    modal.innerHTML = `
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-info-circle me-2 text-info"></i>
+                        Détails d'utilisation de la licence
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <h6 class="text-muted">Informations de la licence</h6>
+                            <div class="mb-2">
+                                <strong>ID:</strong> <span class="badge bg-secondary">${license.id.substring(0, 8)}</span>
+                            </div>
+                            <div class="mb-2">
+                                <strong>Clé:</strong> 
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control" value="${license.key}" readonly>
+                                    <button class="btn btn-outline-secondary" onclick="copyToClipboard(this.previousElementSibling)">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <strong>Expiration:</strong> ${new Date(license.expirationDate).toLocaleDateString('fr-FR')}
+                            </div>
+                            <div class="mb-2">
+                                <strong>Machine assignée:</strong> 
+                                ${license.machineId ? 
+                                    `<span class="badge bg-info">${license.machineId.substring(0, 8)}</span>` : 
+                                    '<span class="badge bg-warning">Générique</span>'
+                                }
+                            </div>
+                            <div class="mb-2">
+                                <strong>Statut:</strong> 
+                                <span class="status-badge ${license.isActive ? 'status-active' : 'status-expired'}">
+                                    ${license.isActive ? 'Active' : 'Expirée'}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-muted">Statistiques d'utilisation</h6>
+                            <div class="mb-2">
+                                <strong>Utilisations totales:</strong> <span class="badge bg-primary">${license.usageCount || 0}</span>
+                            </div>
+                            <div class="mb-2">
+                                <strong>Machines uniques:</strong> <span class="badge bg-success">${usage.length}</span>
+                            </div>
+                            <div class="mb-2">
+                                <strong>Créée le:</strong> ${new Date(license.createdAt).toLocaleDateString('fr-FR')}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <h6 class="text-muted">Historique d'utilisation par machine</h6>
+                        ${usage.length > 0 ? `
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Machine ID</th>
+                                            <th>Date d'utilisation</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${usage.map(u => `
+                                            <tr>
+                                                <td><span class="badge bg-secondary">${u.machine_id.substring(0, 8)}</span></td>
+                                                <td>${new Date(u.used_at).toLocaleString('fr-FR')}</div>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ` : `
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Aucune utilisation enregistrée pour cette licence.
+                            </div>
+                        `}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    const modalInstance = new bootstrap.Modal(modal);
+    modalInstance.show();
+    
+    // Remove modal from DOM after it's hidden
+    modal.addEventListener('hidden.bs.modal', () => {
+        document.body.removeChild(modal);
+    });
+}
+
 // Delete license
 async function deleteLicense(licenseId) {
     if (!confirm('Êtes-vous sûr de vouloir supprimer cette licence ?')) {
@@ -641,6 +767,16 @@ async function resetMachineTrial(machineId) {
         console.error('Erreur lors de la réinitialisation de la machine:', error);
         showToast('Erreur lors de la réinitialisation de la machine', 'error');
     }
+}
+
+// Copy to clipboard utility function
+function copyToClipboard(element) {
+    const text = element.value;
+    navigator.clipboard.writeText(text).then(() => {
+        showToast('Copié dans le presse-papiers !', 'success');
+    }).catch(() => {
+        fallbackCopyTextToClipboard(text);
+    });
 }
 
 // Show toast notification

@@ -54,6 +54,18 @@ const createTables = async () => {
       )
     `);
 
+    // Table pour tracker l'utilisation des licences par machine (one-time use)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS license_usage (
+        id SERIAL PRIMARY KEY,
+        license_id VARCHAR(36) NOT NULL,
+        machine_id VARCHAR(255) NOT NULL,
+        used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(license_id, machine_id),
+        FOREIGN KEY (license_id) REFERENCES licenses(id) ON DELETE CASCADE
+      )
+    `);
+
     // Insérer les paramètres par défaut s'ils n'existent pas
     await client.query(`
       INSERT INTO settings (trial_duration, max_machines)
@@ -161,6 +173,31 @@ const db = {
       SET usage_count = usage_count + 1, last_used = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
     `, [id]);
+  },
+
+  async recordLicenseUsage(licenseId, machineId) {
+    await pool.query(`
+      INSERT INTO license_usage (license_id, machine_id)
+      VALUES ($1, $2)
+      ON CONFLICT (license_id, machine_id) DO NOTHING
+    `, [licenseId, machineId]);
+  },
+
+  async hasLicenseBeenUsedByMachine(licenseId, machineId) {
+    const result = await pool.query(`
+      SELECT COUNT(*) as count FROM license_usage 
+      WHERE license_id = $1 AND machine_id = $2
+    `, [licenseId, machineId]);
+    return parseInt(result.rows[0].count) > 0;
+  },
+
+  async getLicenseUsageByMachine(licenseId) {
+    const result = await pool.query(`
+      SELECT machine_id, used_at FROM license_usage 
+      WHERE license_id = $1
+      ORDER BY used_at DESC
+    `, [licenseId]);
+    return result.rows;
   },
 
   // Machines

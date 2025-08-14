@@ -143,6 +143,37 @@ app.delete('/api/licenses/:id', async (req, res) => {
   }
 });
 
+// Obtenir les informations d'utilisation d'une licence
+app.get('/api/licenses/:id/usage', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const license = await db.getLicenseById(id);
+    
+    if (!license) {
+      return res.status(404).json({ success: false, error: 'Licence non trouvée' });
+    }
+
+    const usage = await db.getLicenseUsageByMachine(id);
+    
+    res.json({
+      success: true,
+      license: {
+        id: license.id,
+        key: license.key,
+        expirationDate: license.expiration_date,
+        machineId: license.machine_id,
+        isActive: license.is_active,
+        usageCount: license.usage_count,
+        createdAt: license.created_at
+      },
+      usage: usage
+    });
+  } catch (error) {
+    console.error('Erreur lors du chargement des informations d\'utilisation:', error);
+    res.status(500).json({ success: false, error: 'Erreur lors du chargement des informations d\'utilisation' });
+  }
+});
+
 // Machines
 app.get('/api/machines', async (req, res) => {
   try {
@@ -312,6 +343,15 @@ app.post('/api/validate-license', async (req, res) => {
     if (license.machine_id && license.machine_id !== machineId) {
       return res.json({ valid: false, error: 'Licence non autorisée pour cette machine' });
     }
+
+    // Vérifier si la licence a déjà été utilisée par cette machine (one-time use)
+    const hasBeenUsed = await db.hasLicenseBeenUsedByMachine(license.id, machineId);
+    if (hasBeenUsed) {
+      return res.json({ valid: false, error: 'Licence déjà utilisée par cette machine' });
+    }
+
+    // Enregistrer l'utilisation de la licence par cette machine
+    await db.recordLicenseUsage(license.id, machineId);
 
     // Incrémenter le compteur d'utilisation
     await db.incrementUsageCount(license.id);

@@ -322,6 +322,10 @@
                             </label>
                             <input type="text" id="license-machine-id" name="license-machine-id" class="form-control" placeholder="Laissez vide pour licence générique">
                         </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Note:</strong> Les licences sont utilisables une seule fois par machine. Une fois utilisée, une licence ne peut plus être réutilisée par la même machine.
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
@@ -350,6 +354,10 @@
                     <div class="alert alert-success d-flex align-items-center mb-3">
                         <i class="fas fa-check-circle me-2"></i>
                         <span>Licence générée avec succès !</span>
+                    </div>
+                    <div class="alert alert-warning d-flex align-items-center mb-3">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <span><strong>Important:</strong> Cette licence ne peut être utilisée qu'une seule fois par machine.</span>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Clé de licence</label>
