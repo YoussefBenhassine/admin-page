@@ -150,6 +150,21 @@ const db = {
     return result.rows[0];
   },
 
+  async updateLicenseMachineId(licenseId, machineId) {
+    const result = await pool.query(`
+      UPDATE licenses 
+      SET machine_id = $2, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `, [licenseId, machineId]);
+    
+    if (result.rows.length === 0) {
+      throw new Error(`Licence avec l'ID ${licenseId} non trouvée`);
+    }
+    
+    return result.rows[0];
+  },
+
   async updateLicensesByMachineId(machineId, updates) {
     const fields = Object.keys(updates).map((key, index) => `${key} = $${index + 2}`).join(', ');
     const values = Object.values(updates);

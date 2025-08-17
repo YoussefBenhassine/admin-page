@@ -104,11 +104,6 @@ app.post('/api/licenses', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Date d\'expiration requise' });
     }
 
-    // Require machineId to prevent universal licenses
-    if (!machineId) {
-      return res.status(400).json({ success: false, error: 'ID machine requis pour créer une licence' });
-    }
-
     const licenseId = uuidv4();
     const licenseKey = generateLicenseKey();
 
@@ -116,7 +111,7 @@ app.post('/api/licenses', async (req, res) => {
       id: licenseId,
       key: licenseKey,
       expirationDate: new Date(expirationDate),
-      machineId: machineId // No longer allows null
+      machineId: machineId || null // Allow null for universal licenses that become machine-specific on first use
     });
 
     res.json({
@@ -349,11 +344,6 @@ app.post('/api/validate-license', async (req, res) => {
       return res.json({ valid: false, error: 'Licence désactivée' });
     }
 
-    // Vérifier si la licence est pour une machine spécifique
-    if (license.machine_id && license.machine_id !== machineId) {
-      return res.json({ valid: false, error: 'Licence non autorisée pour cette machine' });
-    }
-
     // Vérifier si la licence a déjà été utilisée par cette machine (one-time use)
     const hasBeenUsed = await db.hasLicenseBeenUsedByMachine(license.id, machineId);
     if (hasBeenUsed) {
@@ -364,6 +354,15 @@ app.post('/api/validate-license', async (req, res) => {
     const usageCount = await db.getLicenseUsageCount(license.id);
     if (usageCount > 0) {
       return res.json({ valid: false, error: 'Licence déjà utilisée sur une autre machine' });
+    }
+
+    // Si c'est la première utilisation et que la licence n'est pas liée à une machine spécifique,
+    // la lier à cette machine
+    if (!license.machine_id) {
+      await db.updateLicenseMachineId(license.id, machineId);
+    } else if (license.machine_id !== machineId) {
+      // Si la licence est déjà liée à une machine différente
+      return res.json({ valid: false, error: 'Licence non autorisée pour cette machine' });
     }
 
     // Enregistrer l'utilisation de la licence par cette machine
