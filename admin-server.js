@@ -104,6 +104,11 @@ app.post('/api/licenses', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Date d\'expiration requise' });
     }
 
+    // Require machineId to prevent universal licenses
+    if (!machineId) {
+      return res.status(400).json({ success: false, error: 'ID machine requis pour créer une licence' });
+    }
+
     const licenseId = uuidv4();
     const licenseKey = generateLicenseKey();
 
@@ -111,7 +116,7 @@ app.post('/api/licenses', async (req, res) => {
       id: licenseId,
       key: licenseKey,
       expirationDate: new Date(expirationDate),
-      machineId: machineId || null
+      machineId: machineId // No longer allows null
     });
 
     res.json({
@@ -339,6 +344,11 @@ app.post('/api/validate-license', async (req, res) => {
       return res.json({ valid: false, error: 'Licence expirée' });
     }
 
+    // Vérifier si la licence est active
+    if (!license.is_active) {
+      return res.json({ valid: false, error: 'Licence désactivée' });
+    }
+
     // Vérifier si la licence est pour une machine spécifique
     if (license.machine_id && license.machine_id !== machineId) {
       return res.json({ valid: false, error: 'Licence non autorisée pour cette machine' });
@@ -348,6 +358,12 @@ app.post('/api/validate-license', async (req, res) => {
     const hasBeenUsed = await db.hasLicenseBeenUsedByMachine(license.id, machineId);
     if (hasBeenUsed) {
       return res.json({ valid: false, error: 'Licence déjà utilisée par cette machine' });
+    }
+
+    // Vérifier si la licence a déjà été utilisée par une autre machine (one-time use global)
+    const usageCount = await db.getLicenseUsageCount(license.id);
+    if (usageCount > 0) {
+      return res.json({ valid: false, error: 'Licence déjà utilisée sur une autre machine' });
     }
 
     // Enregistrer l'utilisation de la licence par cette machine

@@ -1,18 +1,19 @@
 import fetch from 'node-fetch';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = 'https://admin-page-7ikz.onrender.com/api';
 
 async function testOneTimeUse() {
     console.log('🧪 Test de la fonctionnalité one-time use des licences\n');
 
     try {
-        // 1. Créer une licence
+        // 1. Créer une licence avec machineId requis
         console.log('1. Création d\'une licence...');
         const createResponse = await fetch(`${API_BASE}/licenses`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                expirationDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                expirationDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                machineId: 'test-machine-123'
             })
         });
         
@@ -22,7 +23,8 @@ async function testOneTimeUse() {
         }
         
         const licenseKey = createData.license.key;
-        const machineId = 'test-machine-123';
+        const machineId1 = 'test-machine-123';
+        const machineId2 = 'test-machine-456';
         console.log(`✅ Licence créée: ${licenseKey.substring(0, 20)}...`);
 
         // 2. Première validation (doit réussir)
@@ -30,7 +32,7 @@ async function testOneTimeUse() {
         const firstValidation = await fetch(`${API_BASE}/validate-license`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ licenseKey, machineId })
+            body: JSON.stringify({ licenseKey, machineId: machineId1 })
         });
         
         const firstResult = await firstValidation.json();
@@ -44,46 +46,53 @@ async function testOneTimeUse() {
         const secondValidation = await fetch(`${API_BASE}/validate-license`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ licenseKey, machineId })
+            body: JSON.stringify({ licenseKey, machineId: machineId1 })
         });
         
         const secondResult = await secondValidation.json();
         if (secondResult.valid) {
-            throw new Error('Deuxième validation aurait dû échouer');
+            throw new Error('❌ Deuxième validation aurait dû échouer');
         }
         console.log('✅ Deuxième validation échouée comme attendu: ' + secondResult.error);
 
-        // 4. Validation avec une machine différente (doit réussir)
+        // 4. Validation avec une machine différente (doit échouer)
         console.log('\n4. Validation avec une machine différente...');
         const thirdValidation = await fetch(`${API_BASE}/validate-license`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ licenseKey, machineId: 'test-machine-456' })
+            body: JSON.stringify({ licenseKey, machineId: machineId2 })
         });
         
         const thirdResult = await thirdValidation.json();
-        if (!thirdResult.valid) {
-            throw new Error('Validation avec machine différente échouée: ' + thirdResult.error);
+        if (thirdResult.valid) {
+            throw new Error('❌ Validation avec machine différente aurait dû échouer');
         }
-        console.log('✅ Validation avec machine différente réussie');
+        console.log('✅ Validation avec machine différente échouée comme attendu: ' + thirdResult.error);
 
-        // 5. Vérifier les informations d'utilisation
-        console.log('\n5. Vérification des informations d\'utilisation...');
-        const licenseId = createData.license.id;
-        const usageResponse = await fetch(`${API_BASE}/licenses/${licenseId}/usage`);
-        const usageData = await usageResponse.json();
-        
-        if (!usageData.success) {
-            throw new Error('Erreur récupération usage: ' + usageData.error);
-        }
-        
-        console.log(`✅ Utilisations enregistrées: ${usageData.usage.length} machines`);
-        usageData.usage.forEach(u => {
-            console.log(`   - Machine ${u.machine_id.substring(0, 8)}... utilisée le ${new Date(u.used_at).toLocaleString()}`);
+        // 5. Test création licence sans machineId (doit échouer)
+        console.log('\n5. Test création licence sans machineId...');
+        const invalidCreateResponse = await fetch(`${API_BASE}/licenses`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                expirationDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                // Pas de machineId
+            })
         });
+        
+        const invalidCreateData = await invalidCreateResponse.json();
+        if (invalidCreateData.success) {
+            throw new Error('❌ Création licence sans machineId aurait dû échouer');
+        }
+        console.log('✅ Création licence sans machineId échouée comme attendu: ' + invalidCreateData.error);
 
-        console.log('\n🎉 Tous les tests sont passés avec succès !');
-        console.log('✅ La fonctionnalité one-time use fonctionne correctement.');
+        console.log('\n🎉 Tous les tests one-time use sont passés avec succès!');
+        console.log('\n📋 Résumé des vérifications:');
+        console.log('✅ Licence créée avec machineId requis');
+        console.log('✅ Première utilisation réussie');
+        console.log('✅ Réutilisation sur même machine bloquée');
+        console.log('✅ Utilisation sur machine différente bloquée');
+        console.log('✅ Création licence universelle bloquée');
 
     } catch (error) {
         console.error('❌ Erreur lors du test:', error.message);
@@ -91,5 +100,5 @@ async function testOneTimeUse() {
     }
 }
 
-// Lancer le test si le script est exécuté directement
+// Exécuter le test
 testOneTimeUse();

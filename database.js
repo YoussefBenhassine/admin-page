@@ -200,6 +200,14 @@ const db = {
     return result.rows;
   },
 
+  async getLicenseUsageCount(licenseId) {
+    const result = await pool.query(`
+      SELECT COUNT(*) as count FROM license_usage 
+      WHERE license_id = $1
+    `, [licenseId]);
+    return parseInt(result.rows[0].count);
+  },
+
   // Machines
   async getAllMachines() {
     const result = await pool.query('SELECT * FROM machines ORDER BY last_seen DESC');
