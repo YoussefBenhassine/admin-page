@@ -43,20 +43,19 @@ const initializeDatabase = async () => {
 
 // Fonction de génération de clé de licence
 function generateLicenseKey() {
-  const key = crypto.randomBytes(32).toString('hex');
-  const iv = crypto.randomBytes(16);
-  
-  // Créer une clé de 32 bytes pour AES-256
-  const encryptionKey = crypto.scryptSync(
-    process.env.ENCRYPTION_KEY || 'default-key', 
-    'salt', 
-    32
-  );
-  
-  const cipher = crypto.createCipheriv('aes-256-cbc', encryptionKey, iv);
-  let encrypted = cipher.update(key, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return iv.toString('hex') + ':' + encrypted;
+  const groups = 4;
+  const groupLength = 4;
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Exclude I, O, 0, 1
+  const randomChar = () => charset[crypto.randomInt(0, charset.length)];
+  const parts = [];
+  for (let i = 0; i < groups; i++) {
+    let group = '';
+    for (let j = 0; j < groupLength; j++) {
+      group += randomChar();
+    }
+    parts.push(group);
+  }
+  return parts.join('-');
 }
 
 // Routes API

@@ -6,6 +6,26 @@ let licenses = [];
 let machines = [];
 let settings = {};
 
+// Format license key for display: keep old keys intact, format 16-char alphanumeric as XXXX-XXXX-XXXX-XXXX
+function formatLicenseKeyForDisplay(key) {
+    if (!key || typeof key !== 'string') return '';
+    // Keep legacy encrypted format as-is (contains colon)
+    if (key.includes(':')) return key;
+    const upper = key.toUpperCase();
+    const hyphenatedPattern = /^([A-Z0-9]{4}-){3}[A-Z0-9]{4}$/;
+    if (hyphenatedPattern.test(upper)) return upper;
+    const cleaned = upper.replace(/[^A-Z0-9]/g, '');
+    if (cleaned.length === 16) {
+        return cleaned.match(/.{1,4}/g).join('-');
+    }
+    return key;
+}
+
+function truncateForDisplay(text, maxLength = 20) {
+    if (!text) return '';
+    return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+}
+
 // Initialize the application
 function initializeApp() {
     setupEventListeners();
@@ -199,18 +219,19 @@ function updateLicensesTable() {
         const statusClass = license.isActive ? 'status-active' : 'status-expired';
         const statusText = license.isActive ? 'Active' : 'Expirée';
         
-        // Tronquer la clé pour l'affichage
-        const displayKey = license.key.length > 20 ? license.key.substring(0, 20) + '...' : license.key;
+        // Format and truncate key for display
+        const fullDisplayKey = formatLicenseKeyForDisplay(license.key);
+        const displayKey = truncateForDisplay(fullDisplayKey, 20);
         
         row.innerHTML = `
             <td class="align-middle">
                 <span class="badge bg-secondary">${license.id.substring(0, 8)}</span>
             </td>
             <td class="align-middle">
-                <div class="license-key-container" data-bs-toggle="tooltip" data-bs-placement="top" title="${license.key}">
+                <div class="license-key-container" data-bs-toggle="tooltip" data-bs-placement="top" title="${fullDisplayKey}">
                     <div class="license-key-display">
                         <code class="license-key-text">${displayKey}</code>
-                        <button class="license-key-copy-btn" type="button" onclick="copyLicenseKey('${license.key}', this)" title="Copier la clé">
+                        <button class="license-key-copy-btn" type="button" onclick="copyLicenseKey('${fullDisplayKey}', this)" title="Copier la clé">
                             <i class="fas fa-copy"></i>
                         </button>
                     </div>
@@ -304,7 +325,7 @@ function updateMachinesTable() {
         
         // Tronquer la clé de licence si elle existe
         const licenseDisplay = machine.license_key ? 
-            (machine.license_key.length > 20 ? machine.license_key.substring(0, 20) + '...' : machine.license_key) : 
+            truncateForDisplay(formatLicenseKeyForDisplay(machine.license_key), 20) : 
             'Essai';
         
         row.innerHTML = `
@@ -322,10 +343,10 @@ function updateMachinesTable() {
             </td>
             <td class="align-middle">
                 ${machine.license_key ? 
-                    `<div class="license-key-container" data-bs-toggle="tooltip" data-bs-placement="top" title="${machine.license_key}">
+                    `<div class="license-key-container" data-bs-toggle="tooltip" data-bs-placement="top" title="${formatLicenseKeyForDisplay(machine.license_key)}">
                         <div class="license-key-display">
                             <code class="license-key-text">${licenseDisplay}</code>
-                            <button class="license-key-copy-btn" type="button" onclick="copyLicenseKey('${machine.license_key}', this)" title="Copier la clé">
+                            <button class="license-key-copy-btn" type="button" onclick="copyLicenseKey('${formatLicenseKeyForDisplay(machine.license_key)}', this)" title="Copier la clé">
                                 <i class="fas fa-copy"></i>
                             </button>
                         </div>
@@ -430,7 +451,7 @@ async function loadSettings() {
             modal.hide();
             
             // Show success modal
-            document.getElementById('generated-license-key').value = data.license.key;
+            document.getElementById('generated-license-key').value = formatLicenseKeyForDisplay(data.license.key);
             document.getElementById('generated-expiration').value = new Date(data.license.expirationDate).toLocaleDateString('fr-FR');
             
             const successModal = new bootstrap.Modal(document.getElementById('license-key-modal'));
@@ -635,7 +656,7 @@ function showLicenseUsageModal(license, usage) {
                             <div class="mb-2">
                                 <strong>Clé:</strong> 
                                 <div class="input-group input-group-sm">
-                                    <input type="text" class="form-control" value="${license.key}" readonly>
+                                    <input type="text" class="form-control" value="${formatLicenseKeyForDisplay(license.key)}" readonly>
                                     <button class="btn btn-outline-secondary" onclick="copyToClipboard(this.previousElementSibling)">
                                         <i class="fas fa-copy"></i>
                                     </button>
@@ -856,7 +877,7 @@ function viewLicenseDetails(licenseId) {
                 <div class="col-12">
                     <label class="form-label fw-bold">Clé de Licence</label>
                     <div class="input-group">
-                        <input type="text" class="form-control font-monospace" value="${license.key}" readonly>
+                        <input type="text" class="form-control font-monospace" value="${formatLicenseKeyForDisplay(license.key)}" readonly>
                         <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard('license-detail-key')">
                             <i class="fas fa-copy"></i>
                         </button>
@@ -927,7 +948,7 @@ function viewLicenseDetails(licenseId) {
         const copyInput = document.createElement('input');
         copyInput.type = 'text';
         copyInput.id = 'license-detail-key';
-        copyInput.value = license.key;
+        copyInput.value = formatLicenseKeyForDisplay(license.key);
         copyInput.style.position = 'absolute';
         copyInput.style.left = '-9999px';
         document.body.appendChild(copyInput);
@@ -975,7 +996,7 @@ function viewMachineDetails(machineId) {
                 <div class="col-md-6">
                     <label class="form-label fw-bold">Clé de Licence</label>
                     <div class="input-group">
-                        <input type="text" class="form-control font-monospace" value="${machine.license_key || 'Aucune'}" readonly>
+                        <input type="text" class="form-control font-monospace" value="${machine.license_key ? formatLicenseKeyForDisplay(machine.license_key) : 'Aucune'}" readonly>
                         <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard('machine-detail-license-key')">
                             <i class="fas fa-copy"></i>
                         </button>
@@ -1022,7 +1043,7 @@ function viewMachineDetails(machineId) {
         const copyInput = document.createElement('input');
         copyInput.type = 'text';
         copyInput.id = 'machine-detail-license-key';
-        copyInput.value = machine.license_key || '';
+        copyInput.value = machine.license_key ? formatLicenseKeyForDisplay(machine.license_key) : '';
         copyInput.style.position = 'absolute';
         copyInput.style.left = '-9999px';
         document.body.appendChild(copyInput);
