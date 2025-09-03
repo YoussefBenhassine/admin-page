@@ -404,7 +404,7 @@ const startServer = async () => {
     app.listen(PORT, () => {
       console.log(`🚀 Serveur admin démarré sur http://localhost:${PORT}`);
       console.log(`🌐 Interface web disponible sur http://localhost:${PORT}`);
-      console.log(`📊 Base de données PostgreSQL connectée`);
+      console.log(`📊 Base de données MongoDB connectée`);
       console.log(`🔧 Mode: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (error) {

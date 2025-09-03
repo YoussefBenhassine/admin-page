@@ -1,440 +1,405 @@
-const { Pool } = require('pg');
 require('dotenv').config();
+const { MongoClient } = require('mongodb');
 
-// Configuration de la connexion PostgreSQL
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
+const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017';
+const mongoDbName = process.env.MONGODB_DB_NAME || 'email_campaign_admin';
 
-// Scripts de création des tables
-const createTables = async () => {
-  const client = await pool.connect();
-  
-  try {
-    // Table des licences
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS licenses (
-        id VARCHAR(36) PRIMARY KEY,
-        key TEXT NOT NULL UNIQUE,
-        expiration_date TIMESTAMP NOT NULL,
-        machine_id VARCHAR(255),
-        is_active BOOLEAN DEFAULT true,
-        usage_count INTEGER DEFAULT 0,
-        last_used TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+let mongoClient;
+let connectPromise;
 
-    // Table des machines
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS machines (
-        machine_id VARCHAR(255) PRIMARY KEY,
-        hostname VARCHAR(255) NOT NULL,
-        platform VARCHAR(100) NOT NULL,
-        version VARCHAR(50) NOT NULL,
-        license_key TEXT,
-        needs_trial_reset BOOLEAN DEFAULT false,
-        blocked_license_key TEXT,
-        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Table des paramètres
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS settings (
-        id SERIAL PRIMARY KEY,
-        trial_duration INTEGER DEFAULT 30,
-        max_machines INTEGER DEFAULT 1,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Table pour tracker l'utilisation des licences par machine (one-time use)
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS license_usage (
-        id SERIAL PRIMARY KEY,
-        license_id VARCHAR(36) NOT NULL,
-        machine_id VARCHAR(255) NOT NULL,
-        used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(license_id, machine_id),
-        FOREIGN KEY (license_id) REFERENCES licenses(id) ON DELETE CASCADE
-      )
-    `);
-
-    // Insérer les paramètres par défaut s'ils n'existent pas
-    await client.query(`
-      INSERT INTO settings (trial_duration, max_machines)
-      VALUES (30, 1)
-      ON CONFLICT DO NOTHING
-    `);
-
-    // Migration: Ajouter la colonne needs_trial_reset si elle n'existe pas
-    try {
-      await client.query(`
-        ALTER TABLE machines 
-        ADD COLUMN IF NOT EXISTS needs_trial_reset BOOLEAN DEFAULT false
-      `);
-    } catch (error) {
-      console.log('ℹ️ Colonne needs_trial_reset déjà présente ou erreur de migration:', error.message);
-    }
-
-    // Migration: Ajouter la colonne blocked_license_key si elle n'existe pas
-    try {
-      await client.query(`
-        ALTER TABLE machines 
-        ADD COLUMN IF NOT EXISTS blocked_license_key TEXT
-      `);
-    } catch (error) {
-      console.log('ℹ️ Colonne blocked_license_key déjà présente ou erreur de migration:', error.message);
-    }
-
-    console.log('✅ Tables créées avec succès');
-  } catch (error) {
-    console.error('❌ Erreur lors de la création des tables:', error);
-    throw error;
-  } finally {
-    client.release();
+async function getDb() {
+  if (!connectPromise) {
+    mongoClient = new MongoClient(mongoUri, {
+      maxPoolSize: 10
+    });
+    connectPromise = mongoClient.connect();
   }
+  await connectPromise;
+  return mongoClient.db(mongoDbName);
+}
+
+// Création des collections et index MongoDB
+const createTables = async () => {
+  const db = await getDb();
+
+  // Collections
+  const licenses = db.collection('licenses');
+  const machines = db.collection('machines');
+  const settings = db.collection('settings');
+  const licenseUsage = db.collection('license_usage');
+
+  // Indexes
+  await licenses.createIndex({ id: 1 }, { unique: true });
+  await licenses.createIndex({ key: 1 }, { unique: true });
+  await machines.createIndex({ machine_id: 1 }, { unique: true });
+  await licenseUsage.createIndex({ license_id: 1, machine_id: 1 }, { unique: true });
+
+  // Paramètres par défaut
+  const existingSettings = await settings.findOne({ _id: 'singleton' });
+  if (!existingSettings) {
+    await settings.insertOne({
+      _id: 'singleton',
+      trial_duration: 30,
+      max_machines: 1,
+      created_at: new Date(),
+      updated_at: new Date()
+    });
+  }
+
+  console.log('✅ Collections et index MongoDB prêts');
 };
 
 // Fonctions de base de données
 const db = {
   // Licences
   async getAllLicenses() {
-    const result = await pool.query('SELECT * FROM licenses ORDER BY created_at DESC');
-    return result.rows;
+    const database = await getDb();
+    return database.collection('licenses').find({}).sort({ created_at: -1 }).toArray();
   },
 
   async getLicenseById(id) {
-    const result = await pool.query('SELECT * FROM licenses WHERE id = $1', [id]);
-    return result.rows[0];
+    const database = await getDb();
+    return database.collection('licenses').findOne({ id });
   },
 
   async getLicenseByKey(key) {
-    const result = await pool.query('SELECT * FROM licenses WHERE key = $1', [key]);
-    return result.rows[0];
+    const database = await getDb();
+    return database.collection('licenses').findOne({ key });
   },
 
   async createLicense(license) {
-    const result = await pool.query(`
-      INSERT INTO licenses (id, key, expiration_date, machine_id)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *
-    `, [license.id, license.key, license.expirationDate, license.machineId]);
-    return result.rows[0];
+    const database = await getDb();
+    const now = new Date();
+    const doc = {
+      id: license.id,
+      key: license.key,
+      expiration_date: new Date(license.expirationDate),
+      machine_id: license.machineId || null,
+      is_active: true,
+      usage_count: 0,
+      last_used: null,
+      created_at: now,
+      updated_at: now
+    };
+    await database.collection('licenses').insertOne(doc);
+    return doc;
   },
 
   async updateLicense(id, updates) {
     if (!id) {
       throw new Error('ID de licence requis pour la mise à jour');
     }
-    
-    const fields = Object.keys(updates).map((key, index) => `${key} = $${index + 2}`).join(', ');
-    const values = Object.values(updates);
-    const result = await pool.query(`
-      UPDATE licenses 
-      SET ${fields}, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-      RETURNING *
-    `, [id, ...values]);
-    
-    if (result.rows.length === 0) {
+    const database = await getDb();
+    const sanitized = { ...updates };
+    delete sanitized.id;
+    delete sanitized.key; // éviter de briser l'unicité sans contrôle
+    const result = await database.collection('licenses').findOneAndUpdate(
+      { id },
+      { $set: { ...sanitized, updated_at: new Date() } },
+      { returnDocument: 'after' }
+    );
+    if (!result.value) {
       throw new Error(`Licence avec l'ID ${id} non trouvée`);
     }
-    
-    return result.rows[0];
+    return result.value;
   },
 
   async updateLicenseMachineId(licenseId, machineId) {
-    const result = await pool.query(`
-      UPDATE licenses 
-      SET machine_id = $2, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-      RETURNING *
-    `, [licenseId, machineId]);
-    
-    if (result.rows.length === 0) {
+    const database = await getDb();
+    const result = await database.collection('licenses').findOneAndUpdate(
+      { id: licenseId },
+      { $set: { machine_id: machineId, updated_at: new Date() } },
+      { returnDocument: 'after' }
+    );
+    if (!result.value) {
       throw new Error(`Licence avec l'ID ${licenseId} non trouvée`);
     }
-    
-    return result.rows[0];
+    return result.value;
   },
 
   async updateLicensesByMachineId(machineId, updates) {
-    const fields = Object.keys(updates).map((key, index) => `${key} = $${index + 2}`).join(', ');
-    const values = Object.values(updates);
-    const result = await pool.query(`
-      UPDATE licenses 
-      SET ${fields}, updated_at = CURRENT_TIMESTAMP
-      WHERE machine_id = $1
-      RETURNING *
-    `, [machineId, ...values]);
-    
-    return result.rows;
+    const database = await getDb();
+    const sanitized = { ...updates };
+    delete sanitized.id;
+    delete sanitized.key;
+    await database.collection('licenses').updateMany(
+      { machine_id: machineId },
+      { $set: { ...sanitized, updated_at: new Date() } }
+    );
+    return database.collection('licenses').find({ machine_id: machineId }).toArray();
   },
 
   async deleteLicense(id) {
-    await pool.query('DELETE FROM licenses WHERE id = $1', [id]);
+    const database = await getDb();
+    await database.collection('licenses').deleteOne({ id });
   },
 
   async incrementUsageCount(id) {
-    await pool.query(`
-      UPDATE licenses 
-      SET usage_count = usage_count + 1, last_used = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-    `, [id]);
+    const database = await getDb();
+    await database.collection('licenses').updateOne(
+      { id },
+      { $inc: { usage_count: 1 }, $set: { last_used: new Date(), updated_at: new Date() } }
+    );
   },
 
   async recordLicenseUsage(licenseId, machineId) {
-    await pool.query(`
-      INSERT INTO license_usage (license_id, machine_id)
-      VALUES ($1, $2)
-      ON CONFLICT (license_id, machine_id) DO NOTHING
-    `, [licenseId, machineId]);
+    const database = await getDb();
+    try {
+      await database.collection('license_usage').insertOne({
+        license_id: licenseId,
+        machine_id: machineId,
+        used_at: new Date()
+      });
+    } catch (error) {
+      // Ignore duplicate key error (unique index ensures no duplicates)
+      if (!(error && error.code === 11000)) {
+        throw error;
+      }
+    }
   },
 
   async hasLicenseBeenUsedByMachine(licenseId, machineId) {
-    const result = await pool.query(`
-      SELECT COUNT(*) as count FROM license_usage 
-      WHERE license_id = $1 AND machine_id = $2
-    `, [licenseId, machineId]);
-    return parseInt(result.rows[0].count) > 0;
+    const database = await getDb();
+    const count = await database.collection('license_usage').countDocuments({ license_id: licenseId, machine_id: machineId });
+    return count > 0;
   },
 
   async getLicenseUsageByMachine(licenseId) {
-    const result = await pool.query(`
-      SELECT machine_id, used_at FROM license_usage 
-      WHERE license_id = $1
-      ORDER BY used_at DESC
-    `, [licenseId]);
-    return result.rows;
+    const database = await getDb();
+    return database.collection('license_usage')
+      .find({ license_id: licenseId }, { projection: { _id: 0, machine_id: 1, used_at: 1 } })
+      .sort({ used_at: -1 })
+      .toArray();
   },
 
   async getLicenseUsageCount(licenseId) {
-    const result = await pool.query(`
-      SELECT COUNT(*) as count FROM license_usage 
-      WHERE license_id = $1
-    `, [licenseId]);
-    return parseInt(result.rows[0].count);
+    const database = await getDb();
+    return database.collection('license_usage').countDocuments({ license_id: licenseId });
   },
 
   // Machines
   async getAllMachines() {
-    const result = await pool.query('SELECT * FROM machines ORDER BY last_seen DESC');
-    return result.rows;
+    const database = await getDb();
+    return database.collection('machines').find({}).sort({ last_seen: -1 }).toArray();
   },
 
   async getMachineById(machineId) {
-    const result = await pool.query('SELECT * FROM machines WHERE machine_id = $1', [machineId]);
-    return result.rows[0];
+    const database = await getDb();
+    return database.collection('machines').findOne({ machine_id: machineId });
   },
 
   async createOrUpdateMachine(machine) {
-    // Vérifier si la machine a besoin d'une réinitialisation d'essai
-    const existingMachine = await pool.query('SELECT needs_trial_reset, license_key, blocked_license_key FROM machines WHERE machine_id = $1', [machine.machineId]);
-    
-    if (existingMachine.rows.length > 0 && existingMachine.rows[0].needs_trial_reset) {
-      // Si la machine a besoin d'une réinitialisation, vérifier si c'est une licence bloquée
-      const blockedLicenseKey = existingMachine.rows[0].blocked_license_key;
-      
+    const database = await getDb();
+    const machines = database.collection('machines');
+    const existing = await machines.findOne({ machine_id: machine.machineId });
+
+    if (existing && existing.needs_trial_reset) {
+      const blockedLicenseKey = existing.blocked_license_key;
+
       if (machine.licenseKey && machine.licenseKey === blockedLicenseKey) {
-        // Si c'est la licence bloquée, ne pas permettre la mise à jour
-        const result = await pool.query(`
-          UPDATE machines 
-          SET 
-            hostname = $2,
-            platform = $3,
-            version = $4,
-            last_seen = CURRENT_TIMESTAMP,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE machine_id = $1
-          RETURNING *
-        `, [machine.machineId, machine.hostname, machine.platform, machine.version]);
-        return result.rows[0];
+        const result = await machines.findOneAndUpdate(
+          { machine_id: machine.machineId },
+          {
+            $set: {
+              hostname: machine.hostname,
+              platform: machine.platform,
+              version: machine.version,
+              last_seen: new Date(),
+              updated_at: new Date()
+            }
+          },
+          { returnDocument: 'after', upsert: false }
+        );
+        return result.value;
       } else if (machine.licenseKey && machine.licenseKey !== blockedLicenseKey) {
-        // Si c'est une licence différente de la bloquée, permettre la mise à jour
-        const result = await pool.query(`
-          INSERT INTO machines (machine_id, hostname, platform, version, license_key)
-          VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (machine_id) 
-          DO UPDATE SET 
-            hostname = EXCLUDED.hostname,
-            platform = EXCLUDED.platform,
-            version = EXCLUDED.version,
-            license_key = EXCLUDED.license_key,
-            needs_trial_reset = false,
-            blocked_license_key = NULL,
-            last_seen = CURRENT_TIMESTAMP,
-            updated_at = CURRENT_TIMESTAMP
-          RETURNING *
-        `, [machine.machineId, machine.hostname, machine.platform, machine.version, machine.licenseKey]);
-        return result.rows[0];
+        const result = await machines.findOneAndUpdate(
+          { machine_id: machine.machineId },
+          {
+            $set: {
+              hostname: machine.hostname,
+              platform: machine.platform,
+              version: machine.version,
+              license_key: machine.licenseKey,
+              needs_trial_reset: false,
+              blocked_license_key: null,
+              last_seen: new Date(),
+              updated_at: new Date()
+            },
+            $setOnInsert: {
+              created_at: new Date()
+            }
+          },
+          { returnDocument: 'after', upsert: true }
+        );
+        return result.value;
       } else {
-        // Si pas de licence fournie, ne pas mettre à jour la licence
-        const result = await pool.query(`
-          UPDATE machines 
-          SET 
-            hostname = $2,
-            platform = $3,
-            version = $4,
-            last_seen = CURRENT_TIMESTAMP,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE machine_id = $1
-          RETURNING *
-        `, [machine.machineId, machine.hostname, machine.platform, machine.version]);
-        return result.rows[0];
+        const result = await machines.findOneAndUpdate(
+          { machine_id: machine.machineId },
+          {
+            $set: {
+              hostname: machine.hostname,
+              platform: machine.platform,
+              version: machine.version,
+              last_seen: new Date(),
+              updated_at: new Date()
+            }
+          },
+          { returnDocument: 'after', upsert: false }
+        );
+        return result.value;
       }
     } else {
-      // Comportement normal si pas de réinitialisation en cours
       if (machine.licenseKey !== undefined) {
-        // Si une licence est fournie, l'utiliser
-        const result = await pool.query(`
-          INSERT INTO machines (machine_id, hostname, platform, version, license_key)
-          VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (machine_id) 
-          DO UPDATE SET 
-            hostname = EXCLUDED.hostname,
-            platform = EXCLUDED.platform,
-            version = EXCLUDED.version,
-            license_key = EXCLUDED.license_key,
-            last_seen = CURRENT_TIMESTAMP,
-            updated_at = CURRENT_TIMESTAMP
-          RETURNING *
-        `, [machine.machineId, machine.hostname, machine.platform, machine.version, machine.licenseKey]);
-        return result.rows[0];
+        const result = await machines.findOneAndUpdate(
+          { machine_id: machine.machineId },
+          {
+            $set: {
+              hostname: machine.hostname,
+              platform: machine.platform,
+              version: machine.version,
+              license_key: machine.licenseKey,
+              last_seen: new Date(),
+              updated_at: new Date()
+            },
+            $setOnInsert: { created_at: new Date() }
+          },
+          { returnDocument: 'after', upsert: true }
+        );
+        return result.value;
       } else {
-        // Si pas de licence fournie, préserver la licence existante
-        const result = await pool.query(`
-          INSERT INTO machines (machine_id, hostname, platform, version, license_key)
-          VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (machine_id) 
-          DO UPDATE SET 
-            hostname = EXCLUDED.hostname,
-            platform = EXCLUDED.platform,
-            version = EXCLUDED.version,
-            last_seen = CURRENT_TIMESTAMP,
-            updated_at = CURRENT_TIMESTAMP
-          RETURNING *
-        `, [machine.machineId, machine.hostname, machine.platform, machine.version, existingMachine.rows[0]?.license_key || null]);
-        return result.rows[0];
+        const licenseToPreserve = existing ? (existing.license_key || null) : null;
+        const result = await machines.findOneAndUpdate(
+          { machine_id: machine.machineId },
+          {
+            $set: {
+              hostname: machine.hostname,
+              platform: machine.platform,
+              version: machine.version,
+              license_key: licenseToPreserve,
+              last_seen: new Date(),
+              updated_at: new Date()
+            },
+            $setOnInsert: { created_at: new Date() }
+          },
+          { returnDocument: 'after', upsert: true }
+        );
+        return result.value;
       }
     }
   },
 
   async updateMachineLastSeen(machineId) {
-    await pool.query(`
-      UPDATE machines 
-      SET last_seen = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-      WHERE machine_id = $1
-    `, [machineId]);
+    const database = await getDb();
+    await database.collection('machines').updateOne(
+      { machine_id: machineId },
+      { $set: { last_seen: new Date(), updated_at: new Date() } }
+    );
   },
 
   async updateMachineLicenseKey(machineId, licenseKey = null) {
-    const result = await pool.query(`
-      UPDATE machines 
-      SET license_key = $2, last_seen = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-      WHERE machine_id = $1
-      RETURNING *
-    `, [machineId, licenseKey]);
-    
-    return result.rows[0];
+    const database = await getDb();
+    const result = await database.collection('machines').findOneAndUpdate(
+      { machine_id: machineId },
+      { $set: { license_key: licenseKey, last_seen: new Date(), updated_at: new Date() } },
+      { returnDocument: 'after' }
+    );
+    return result.value;
   },
 
   async updateMachineNeedsTrialReset(machineId, needsReset) {
-    const result = await pool.query(`
-      UPDATE machines 
-      SET needs_trial_reset = $2, updated_at = CURRENT_TIMESTAMP
-      WHERE machine_id = $1
-      RETURNING *
-    `, [machineId, needsReset]);
-    
-    return result.rows[0];
+    const database = await getDb();
+    const result = await database.collection('machines').findOneAndUpdate(
+      { machine_id: machineId },
+      { $set: { needs_trial_reset: !!needsReset, updated_at: new Date() } },
+      { returnDocument: 'after' }
+    );
+    return result.value;
   },
 
   async updateMachineBlockedLicenseKey(machineId, blockedLicenseKey) {
-    const result = await pool.query(`
-      UPDATE machines 
-      SET blocked_license_key = $2, updated_at = CURRENT_TIMESTAMP
-      WHERE machine_id = $1
-      RETURNING *
-    `, [machineId, blockedLicenseKey]);
-    
-    return result.rows[0];
+    const database = await getDb();
+    const result = await database.collection('machines').findOneAndUpdate(
+      { machine_id: machineId },
+      { $set: { blocked_license_key: blockedLicenseKey || null, updated_at: new Date() } },
+      { returnDocument: 'after' }
+    );
+    return result.value;
   },
 
   async getMachineNeedsTrialReset(machineId) {
-    const result = await pool.query(`
-      SELECT needs_trial_reset FROM machines WHERE machine_id = $1
-    `, [machineId]);
-    
-    return result.rows[0]?.needs_trial_reset || false;
+    const database = await getDb();
+    const doc = await database.collection('machines').findOne(
+      { machine_id: machineId },
+      { projection: { needs_trial_reset: 1 } }
+    );
+    return doc ? !!doc.needs_trial_reset : false;
   },
 
   async deleteMachine(machineId) {
-    await pool.query('DELETE FROM machines WHERE machine_id = $1', [machineId]);
+    const database = await getDb();
+    await database.collection('machines').deleteOne({ machine_id: machineId });
   },
 
   // Paramètres
   async getSettings() {
-    const result = await pool.query('SELECT * FROM settings ORDER BY id DESC LIMIT 1');
-    if (result.rows.length === 0) {
-      // Créer les paramètres par défaut s'ils n'existent pas
-      const defaultResult = await pool.query(`
-        INSERT INTO settings (trial_duration, max_machines)
-        VALUES (30, 1)
-        RETURNING *
-      `);
-      return defaultResult.rows[0];
+    const database = await getDb();
+    const settings = await database.collection('settings').findOne({ _id: 'singleton' });
+    if (!settings) {
+      const doc = {
+        _id: 'singleton',
+        trial_duration: 30,
+        max_machines: 1,
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+      await database.collection('settings').insertOne(doc);
+      return doc;
     }
-    return result.rows[0];
+    return settings;
   },
 
   async updateSettings(settings) {
-    // Vérifier s'il existe des paramètres
-    const existing = await pool.query('SELECT COUNT(*) FROM settings');
-    if (parseInt(existing.rows[0].count) === 0) {
-      // Créer les paramètres s'ils n'existent pas
-      const result = await pool.query(`
-        INSERT INTO settings (trial_duration, max_machines)
-        VALUES ($1, $2)
-        RETURNING *
-      `, [settings.trialDuration, settings.maxMachines]);
-      return result.rows[0];
-    } else {
-      // Mettre à jour les paramètres existants
-      const result = await pool.query(`
-        UPDATE settings 
-        SET trial_duration = $1, max_machines = $2, updated_at = CURRENT_TIMESTAMP
-        WHERE id = (SELECT id FROM settings ORDER BY id DESC LIMIT 1)
-        RETURNING *
-      `, [settings.trialDuration, settings.maxMachines]);
-      return result.rows[0];
-    }
+    const database = await getDb();
+    const result = await database.collection('settings').findOneAndUpdate(
+      { _id: 'singleton' },
+      {
+        $set: {
+          trial_duration: parseInt(settings.trialDuration, 10),
+          max_machines: parseInt(settings.maxMachines, 10),
+          updated_at: new Date()
+        },
+        $setOnInsert: { created_at: new Date() }
+      },
+      { upsert: true, returnDocument: 'after' }
+    );
+    return result.value;
   },
 
   // Statistiques
   async getStats() {
-    const stats = await pool.query(`
-      SELECT 
-        (SELECT COUNT(*) FROM licenses) as total_licenses,
-        (SELECT COUNT(*) FROM licenses WHERE is_active = true AND expiration_date > CURRENT_TIMESTAMP) as active_licenses,
-        (SELECT COUNT(*) FROM machines WHERE last_seen > CURRENT_TIMESTAMP - INTERVAL '5 minutes') as active_machines,
-        (SELECT COUNT(*) FROM licenses WHERE expiration_date BETWEEN CURRENT_TIMESTAMP AND CURRENT_TIMESTAMP + INTERVAL '30 days') as expiring_soon
-    `);
-    return stats.rows[0];
+    const database = await getDb();
+    const now = new Date();
+    const soon = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const [totalLicenses, activeLicenses, activeMachines, expiringSoon] = await Promise.all([
+      database.collection('licenses').countDocuments({}),
+      database.collection('licenses').countDocuments({ is_active: true, expiration_date: { $gt: now } }),
+      database.collection('machines').countDocuments({ last_seen: { $gt: new Date(Date.now() - 5 * 60 * 1000) } }),
+      database.collection('licenses').countDocuments({ expiration_date: { $gt: now, $lte: soon } })
+    ]);
+    return {
+      total_licenses: totalLicenses,
+      active_licenses: activeLicenses,
+      active_machines: activeMachines,
+      expiring_soon: expiringSoon
+    };
   },
 
-  // Migration des données existantes
+  // Migration des données existantes depuis un JSON local
   async migrateFromJson() {
     try {
       const fs = require('fs');
       const path = require('path');
-      
+
       const dataPath = path.join(__dirname, 'admin-data.json');
       if (!fs.existsSync(dataPath)) {
         console.log('📁 Aucun fichier admin-data.json trouvé pour la migration');
@@ -442,39 +407,28 @@ const db = {
       }
 
       const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
-      
+
       // Migrer les licences
       for (const license of data.licenses || []) {
-        try {
+        const exists = await this.getLicenseById(license.id);
+        if (!exists) {
           await this.createLicense({
             id: license.id,
             key: license.key,
             expirationDate: license.expirationDate,
             machineId: license.machineId
           });
-        } catch (error) {
-          if (error.code !== '23505') { // Ignorer les doublons
-            console.error('Erreur migration licence:', error);
-          }
         }
       }
 
       // Migrer les machines
       for (const machine of data.machines || []) {
-        try {
-          await this.createOrUpdateMachine(machine);
-        } catch (error) {
-          console.error('Erreur migration machine:', error);
-        }
+        await this.createOrUpdateMachine(machine);
       }
 
       // Migrer les paramètres
       if (data.settings) {
-        try {
-          await this.updateSettings(data.settings);
-        } catch (error) {
-          console.error('Erreur migration paramètres:', error);
-        }
+        await this.updateSettings(data.settings);
       }
 
       console.log('✅ Migration des données terminée');
@@ -484,4 +438,7 @@ const db = {
   }
 };
 
-module.exports = { pool, createTables, db }; 
+// Pour compatibilité d'export avec l'ancien code, exporter un objet "pool"
+const pool = { client: () => mongoClient };
+
+module.exports = { pool, createTables, db };
